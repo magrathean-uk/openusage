@@ -16,7 +16,7 @@ The weekly shared pool is the limit Grok enforces for unified-billing accounts (
 
 ## Where credentials come from
 
-Sign in once with the Grok CLI (`grok login`); OpenUsage reads the same `~/.grok/auth.json`. Access tokens refresh automatically before expiry, and rotated tokens are written back to the file.
+Sign in once with the Grok CLI (`grok login`); OpenUsage reads the same `$GROK_HOME/auth.json`, or `~/.grok/auth.json` when `GROK_HOME` is unset or blank. Shell-exported `GROK_HOME` is also detected when OpenUsage launches from Finder or the Dock. Access tokens refresh automatically before expiry, and rotated tokens are written back to the same file.
 
 ## The spend tiles
 

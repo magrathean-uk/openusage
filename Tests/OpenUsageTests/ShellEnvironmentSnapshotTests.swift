@@ -3,6 +3,31 @@ import XCTest
 
 @MainActor
 final class ShellEnvironmentSnapshotTests: XCTestCase {
+    func testUpgradeCapturesGrokHomeBeforeReadingCredentials() async throws {
+        let defaults = makeScratchDefaults()
+        let legacy = ShellEnvironmentSnapshot(values: [:], capturedAt: Date())
+        defaults.set(try JSONEncoder().encode(legacy), forKey: "openusage.shellEnvSnapshot.v2")
+        let store = ShellEnvironmentSnapshotStore(defaults: defaults)
+        XCTAssertNil(store.load(), "Older snapshots never captured GROK_HOME")
+
+        let stdout = [
+            "__OPENUSAGE_ENV_BEGIN__", "PATH=/usr/bin", "GROK_HOME=/custom/grok", "__OPENUSAGE_ENV_END__",
+        ].joined(separator: "\0")
+        let shell = LoginShellEnvironment(runner: FixedRunner(stdout: stdout))
+        await store.startRefreshTask(shellEnvironment: shell).value
+        let snapshot = try XCTUnwrap(store.load())
+        XCTAssertEqual(snapshot.values["GROK_HOME"], "/custom/grok")
+        let reader = ProcessEnvironmentReader(
+            processEnvironment: [:],
+            shellEnvironment: LoginShellEnvironment(runner: FixedRunner(stdout: "unused")),
+            launchSnapshot: { snapshot }
+        )
+        let auth = GrokAuthStore(environment: reader, files: FakeFiles([
+            "/custom/grok/auth.json": #"{"custom":{"key":"token"}}"#,
+        ]))
+        XCTAssertEqual(try auth.loadAuthCandidates().first?.token, "token")
+    }
+
     // The store's save → load roundtrip is asserted by
     // testRefreshTaskKeepsPreviousSnapshotWhenCaptureFails below.
 

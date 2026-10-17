@@ -49,20 +49,24 @@ struct GrokAuthStore: Sendable {
     static let defaultClientID = "b1a00492-073a-47ea-816f-4c329264a828"
     static let refreshBuffer: TimeInterval = 5 * 60
 
+    var environment: EnvironmentReading
     var files: TextFileAccessing
     var now: @Sendable () -> Date
 
     init(
+        environment: EnvironmentReading = ProcessEnvironmentReader(),
         files: TextFileAccessing = LocalTextFileAccessor(),
         now: @escaping @Sendable () -> Date = Date.init
     ) {
+        self.environment = environment
         self.files = files
         self.now = now
     }
 
     func loadAuthCandidates() throws -> [GrokAuthState] {
-        guard files.exists(Self.authPath),
-              let text = try? files.readText(Self.authPath),
+        let authPath = resolvedAuthPath
+        guard files.exists(authPath),
+              let text = try? files.readText(authPath),
               let auth = Self.parseAuth(text)
         else {
             throw GrokAuthError.notLoggedIn
@@ -80,12 +84,13 @@ struct GrokAuthStore: Sendable {
     }
 
     func save(_ state: GrokAuthState) throws {
+        let authPath = resolvedAuthPath
         // Refuse to overwrite a present-but-unreadable/corrupt auth.json by rebuilding it from
         // in-memory state — that would silently drop OTHER accounts' entries. A genuinely absent file
         // (first write) is seeded from in-memory state instead.
         var authObject: [String: Any]
-        if files.exists(Self.authPath) {
-            guard let existingText = try? files.readText(Self.authPath),
+        if files.exists(authPath) {
+            guard let existingText = try? files.readText(authPath),
                   let parsed = Self.parseJSONObject(existingText)
             else {
                 throw GrokAuthError.invalidAuth
@@ -114,7 +119,14 @@ struct GrokAuthStore: Sendable {
         guard let text = String(data: data, encoding: .utf8) else {
             throw GrokAuthError.invalidAuth
         }
-        try files.writeText(Self.authPath, text)
+        try files.writeText(authPath, text)
+    }
+
+    private var resolvedAuthPath: String {
+        guard let home = environment.value(for: "GROK_HOME")?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !home.isEmpty
+        else { return Self.authPath }
+        return URL(fileURLWithPath: expandHome(home)).appendingPathComponent("auth.json").path
     }
 
     func needsRefresh(entry: GrokAuthEntry, token: String) -> Bool {

@@ -47,7 +47,7 @@ final class GrokProvider: ProviderRuntime {
     }
 
     func hasLocalCredentials() async -> Bool {
-        // Same source as `refresh()`: ~/.grok/auth.json with at least one keyed entry.
+        // Same source as `refresh()`: $GROK_HOME/auth.json (default ~/.grok) with a keyed entry.
         await loadOffMainActor { [authStore] in
             ((try? authStore.loadAuthCandidates()) ?? []).isEmpty == false
         }

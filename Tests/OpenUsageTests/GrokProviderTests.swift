@@ -3,6 +3,24 @@ import XCTest
 
 @MainActor
 final class GrokProviderTests: XCTestCase {
+    func testDetectsAndRefreshesCredentialsFromCustomHome() async {
+        let authStore = GrokAuthStore(
+            environment: FakeEnvironment(["GROK_HOME": "/custom/grok"]),
+            files: FakeFiles(["/custom/grok/auth.json": #"{"custom":{"key":"token"}}"#])
+        )
+        let provider = GrokProvider(
+            authStore: authStore,
+            usageClient: GrokUsageClient(httpClient: RecordingHTTPClient(handler: Self.defaultRoutes)),
+            logUsageScanner: noLogScanner(),
+            pricing: { TestPricing.bundled }
+        )
+        let detected = await provider.hasLocalCredentials()
+        XCTAssertTrue(detected)
+        let snapshot = await provider.refresh()
+        XCTAssertEqual(progress(snapshot.lines, "Weekly limit")?.limit, 100)
+        XCTAssertEqual(snapshot.plan, "SuperGrok Heavy")
+    }
+
     func testRefreshFormEncodesReservedCharactersInRequestBody() async throws {
         let httpClient = RecordingHTTPClient { _ in
             HTTPResponse(statusCode: 200, headers: [:], body: Data())
@@ -58,7 +76,7 @@ final class GrokProviderTests: XCTestCase {
             return HTTPResponse(statusCode: 404, headers: [:], body: Data())
         }
         let provider = GrokProvider(
-            authStore: GrokAuthStore(files: files, now: { now }),
+            authStore: GrokAuthStore(environment: FakeEnvironment(), files: files, now: { now }),
             usageClient: GrokUsageClient(httpClient: httpClient),
             logUsageScanner: noLogScanner(),
             now: { now },
@@ -116,7 +134,7 @@ final class GrokProviderTests: XCTestCase {
             return HTTPResponse(statusCode: 404, headers: [:], body: Data())
         }
         let provider = GrokProvider(
-            authStore: GrokAuthStore(files: files, now: { now }),
+            authStore: GrokAuthStore(environment: FakeEnvironment(), files: files, now: { now }),
             usageClient: GrokUsageClient(httpClient: httpClient),
             logUsageScanner: noLogScanner(),
             now: { now },
@@ -378,7 +396,7 @@ final class GrokProviderTests: XCTestCase {
             GrokAuthStore.authPath: #"{"https://auth.x.ai::client":{"key":"token","refresh_token":"refresh","expires_at":"2026-07-01T00:00:00.000Z"}}"#
         ])
         return GrokProvider(
-            authStore: GrokAuthStore(files: files, now: { now }),
+            authStore: GrokAuthStore(environment: FakeEnvironment(), files: files, now: { now }),
             usageClient: GrokUsageClient(httpClient: httpClient),
             logUsageScanner: scanner ?? noLogScanner(),
             now: { now },
