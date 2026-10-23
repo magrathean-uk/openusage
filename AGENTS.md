@@ -1,79 +1,43 @@
-# AGENTS.md
+# OpenUsage project context
 
-OpenUsage is a SwiftPM-based SwiftUI menu-bar app for macOS that shows AI provider usage widgets (Claude, Codex, Cursor, Grok, Devin, and more).
+OpenUsage is a SwiftPM-based SwiftUI menu-bar app for macOS. It displays AI provider usage widgets for Claude, Codex, Cursor, Grok, Devin and other providers.
 
-This file documents the engineering conventions for the project. Read it before contributing.
+## Development and releases
 
-## Agent Instructions
+The native Swift edition develops on `main`. The original Tauri edition lives on `tauri-legacy`, whose final release is `v0.6.28`. Native versions start at `0.7.x`.
 
-AGENTS.md is the source of truth for agent instructions in this repository. CLAUDE.md files may only point to the nearest AGENTS.md file with `@AGENTS.md`; do not add guidance, duplicate instructions, or project rules to CLAUDE.md.
+`.github/workflows/release.yml` publishes the Sparkle appcast on `gh-pages`. Beta tags use `-beta.N`, GitHub pre-releases and Sparkle's beta channel. Plain tags identify stable releases and GitHub Latest. The release workflow carries forward the legacy `latest.json`, allowing remaining `0.6.x` installations to find `v0.6.28`. The release-swift skill documents release commands, changelog generation and publication checks.
 
-> **Repository note:** This is the native Swift edition of OpenUsage. Active development happens on the `main` branch. (NOT the legacy Tauri version which now sits in the `tauri-legacy` branch)
-
-## Releases
-
-`main` is the active development line; it ships via `.github/workflows/release.yml` (Sparkle appcast on `gh-pages`). Cut releases with the release-swift skill.
-
-### Guardrails (do not break)
-- Versions are `0.7.x` and up. Never reuse a `0.6.x` number — those are the original edition's released tags, now frozen on the `tauri-legacy` branch (final release `v0.6.28`).
-- **Never increase the version number on your own initiative — always ask for explicit approval first.** The version is a deliberate owner decision: propose the number and wait for explicit sign-off before tagging or cutting a release.
-- Beta releases use `-beta.N` tags and stay GitHub pre-releases on Sparkle's beta channel. Stable releases use plain tags and become GitHub "Latest".
-- Stable releases must carry forward the legacy `latest.json` so any remaining `0.6.x` installs can still update to `v0.6.28`. `release.yml` handles this; verify it with the release-swift skill.
-- Never leave a release in Draft, and never ship blank notes: the release-swift skill generates the changelog and verifies the published release after every cut.
+The app is a long-lived menu-bar process without hot reload. A rebuilt executable takes effect when that executable is launched.
 
 ## Architecture
 
-- SwiftPM executable target; SwiftUI content hosted in an AppKit-owned `NSStatusItem` + custom key-capable `NSPanel`.
+- SwiftPM executable target; SwiftUI content is hosted in an AppKit-owned `NSStatusItem` and a custom key-capable `NSPanel`.
 - Swift 6 with strict concurrency.
-- Providers implement the small `ProviderRuntime` protocol: an auth store reads credentials already on the user's machine, a usage client calls the provider's API, and a mapper normalizes the response into `MetricLine` values. The UI renders those normalized values.
-- See `docs/` for behavior docs and the developer docs (architecture overview, adding a provider).
+- Providers implement `ProviderRuntime`. An auth store reads local credentials, a usage client calls the provider API, and a mapper normalises responses into `MetricLine` values for rendering.
+- `docs/` contains behaviour documentation, the architecture overview and provider-development references.
 
-## Providers
+## Provider modules
 
-Conventions for the per-provider modules under `Sources/OpenUsage/Providers/<Name>/`.
+Modules live under `Sources/OpenUsage/Providers/<Name>/`. `ProviderRuntime` exposes `refresh()` and `hasLocalCredentials()`. The local credential probe supports `FirstLaunchSetup` and `NewProviderSeeder`; auth-store loaders define local sources and usability filters. See `docs/adding-a-provider.md` and `docs/provider-enablement.md`.
 
-- **Structure:** one folder per provider with an auth store (reads credentials already on the user's machine), a usage client (calls the provider API), and a mapper (normalizes to `MetricLine`), conforming to `ProviderRuntime` — `refresh()` plus `hasLocalCredentials()`, the local-only credential probe used by the welcome screen's detection (`FirstLaunchSetup`) and by new-provider detection on the first launch after the provider ships (`NewProviderSeeder`); mirror the same local credential sources and usability filters that `refresh()` starts with, reusing the auth-store loaders instead of adding a second credential-reading path. See `docs/adding-a-provider.md` and `docs/provider-enablement.md`.
-- **Model pricing:** all spend imputation (Claude, Codex, Cursor, Grok) prices through the shared engine in `Sources/OpenUsage/Pricing/` (see `docs/pricing.md`). Cursor-native model rates and alias rules live in `Sources/OpenUsage/Resources/pricing_supplement.json` — sync new or changed models from [Cursor models & pricing](https://cursor.com/docs/models-and-pricing.md) (update `updated_at`, pricing entries, and `alias_rules` for CSV model slugs); merging to `main` publishes it to gh-pages, so installed apps pick it up without a release. The bundled LiteLLM/models.dev snapshots regenerate with `script/update_pricing_snapshots.sh` (a release-time chore).
-- **Default order:** Claude, Codex, Cursor first (the established providers, in that order), then every other provider alphabetically by display name (Antigravity, Devin, Grok, …). The order is the array order in `AppContainer`, which seeds `LayoutStore`'s default provider order (and `resetToDefault`). A new provider slots into the alphabetical tail.
-- **Metric placement defaults:** when adding or changing a metric, confirm its four defaults with the owner before choosing — never pick silently:
-  1. enabled on/off (`DefaultLayout.metricIDs`),
-  2. Always Visible vs. On Demand — above the fold vs. behind the per-provider caret (`DefaultLayout.expandedMetricIDs`). Note: a provider always keeps at least one Always Visible row — the dashboard promotes all metrics when every one is marked On Demand, so a fully On Demand provider isn't possible; leave one metric Always Visible for the caret to appear,
-  3. pinned to the menu bar (`DefaultLayout.pinnedMetricIDs`),
-  4. order (within a provider, the `widgetDescriptors` declaration order).
+All spend imputation for Claude, Codex, Cursor and Grok uses `Sources/OpenUsage/Pricing/` and is documented in `docs/pricing.md`. Cursor-native rates and aliases live in `Sources/OpenUsage/Resources/pricing_supplement.json`, with `updated_at`, pricing entries and `alias_rules` for CSV model slugs. [Cursor models and pricing](https://cursor.com/docs/models-and-pricing.md) supplies source data. Merging to `main` publishes the supplement to gh-pages for installed apps. `script/update_pricing_snapshots.sh` regenerates bundled LiteLLM/models.dev snapshots.
 
-## Running / Testing Changes
+The default provider array in `AppContainer` seeds `LayoutStore` and `resetToDefault`: Claude, Codex and Cursor are followed by other providers alphabetically by display name.
 
-- There is no hot reload. The app is a long-lived menu-bar process, so **every code change requires a full rebuild and restart of the running app** to take effect — kill the running instance, rebuild, and relaunch before testing.
+Metric defaults are represented by:
 
-## Pull Requests
+1. `DefaultLayout.metricIDs`: enabled metrics.
+2. `DefaultLayout.expandedMetricIDs`: Always Visible versus On Demand metrics.
+3. `DefaultLayout.pinnedMetricIDs`: menu-bar pins.
+4. `widgetDescriptors` declaration order: ordering within a provider.
 
-Every PR description must follow this structure so reviewers can skim it quickly:
+The dashboard promotes all metrics when a provider has no Always Visible row; a fully On Demand provider therefore does not appear as such in the UI.
 
-- **TL;DR** — open with a one- or two-sentence plain-English summary of the change.
-- **What was happening** — plain-English bullet points describing the prior behavior, bug, or gap that motivated the change.
-- **What this changes** — bullet points describing what the PR actually changes.
-- **Heads-up** (optional) — noteworthy things a reviewer or future maintainer should consider (risks, follow-ups, trade-offs).
-- **Tests** (optional) — how the change was verified.
-- **Screenshots** (optional in general, but **required for any PR that makes a visual change**) — images of the affected UI after the change.
+## UI and errors
 
-## Documentation
+The app has title-case headings, an established visual language and a `hoverTooltip` component. Error reporting includes a log file, PostHog and user-facing errors.
 
-- Logic changes must update any docs in `docs/` that describe the affected behavior.
-- Keep docs simple, less-technical, and easy to skim; exclude visual design details.
+## Review material
 
-## Code Conventions
-
-- Add a regression test when fixing a bug, where it fits.
-- Keep files under ~500 LOC; split or refactor as needed.
-- No new dependencies without justification.
-- When adding a provider, follow the conventions in "## Providers".
-
-## Error Handling
-
-Always fail loudly into error logging (log file, PostHog) and show friendly errors to the user. Do not add silent fallbacks that hide real problems. Only validate at system boundaries (user input, external APIs); trust internal code and framework guarantees.
-
-## UI
-
-- Use title case for any hardcoded copy used as a title.
-- Match the existing design language; OpenUsage has a specific look and feel.
-- Only add tooltips (`hoverTooltip`) when explicitly asked to. Don't add them proactively to new controls.
+Common PR-description sections include a plain-English summary, prior behaviour, changes, relevant follow-ups, verification and screenshots. The `docs/` tree records product behaviour and implementation context.
